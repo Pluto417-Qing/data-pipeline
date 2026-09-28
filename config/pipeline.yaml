@@ -1,0 +1,3 @@
+# Change only this value to select the default processing branch.
+# The command-line --branch option overrides it for one run.
+active_branch: sam2

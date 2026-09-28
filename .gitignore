@@ -1,0 +1,16 @@
+.venv/
+.venv-clean/
+.venv-run/
+.pip-cache/
+.tmp/
+.env
+.local/
+__pycache__/
+*.py[cod]
+models/
+dataset/
+input/
+clips/
+experiments/
+*.egg-info/
+outputs/

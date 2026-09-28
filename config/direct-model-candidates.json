@@ -1,0 +1,32 @@
+[
+  {
+    "provider": "runway",
+    "model": "gemini_omni_flash",
+    "role": "fast baseline",
+    "notes": "Video-to-video, 720p, source clip up to 10 seconds; use for prompt and reference-image iteration."
+  },
+  {
+    "provider": "runway",
+    "model": "aleph2",
+    "role": "quality baseline",
+    "notes": "Video-plus-text/image editing; use a short curated subset to test stronger source preservation."
+  },
+  {
+    "provider": "luma",
+    "model": "ray-2",
+    "role": "independent comparison",
+    "notes": "Modify Video with adhere modes; requires the source video at a public URL."
+  },
+  {
+    "provider": "runway",
+    "model": "seedance2_5",
+    "role": "longer creative comparison",
+    "notes": "Video-conditioned generation with a larger reference budget; use only after the short-clip baselines."
+  },
+  {
+    "provider": "dashscope",
+    "model": "wan2.7-videoedit",
+    "role": "recommended Qwen-key baseline",
+    "notes": "Video editing with a DashScope API key; input 2-10 seconds and optional reference images."
+  }
+]

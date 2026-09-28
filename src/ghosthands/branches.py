@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+from .backends import HandSegmentationBackend, create_backend
+from .refined_backend import RefinedMediaPipeBackend
+
+
+@dataclass(frozen=True)
+class ProcessingBranch:
+    """A named, reproducible route from frames to hand masks."""
+
+    name: str
+    description: str
+
+    def create_backend(self) -> HandSegmentationBackend:
+        if self.name == "classic":
+            # Preserve the original pipeline exactly: landmarks -> geometric mask.
+            return create_backend("mediapipe")
+        if self.name == "refined":
+            return RefinedMediaPipeBackend()
+        raise ValueError(f"Unknown processing branch '{self.name}'")
+
+
+BRANCHES = {
+    "classic": ProcessingBranch("classic", "Original MediaPipe landmark-to-mask pipeline."),
+    "refined": ProcessingBranch("refined", "MediaPipe initial mask followed by constrained GrabCut boundary refinement."),
+}
+
+
+def _config_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "config" / "pipeline.yaml"
+
+
+def default_branch_name() -> str:
+    path = _config_path()
+    if not path.exists():
+        return "classic"
+    config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    name = str(config.get("active_branch", "classic")).lower()
+    if name not in BRANCHES:
+        raise ValueError(f"config/pipeline.yaml has unknown active_branch '{name}'. Available: {', '.join(BRANCHES)}")
+    return name
+
+
+def resolve_branch(name: str | None) -> ProcessingBranch:
+    selected = (name or default_branch_name()).lower()
+    try:
+        return BRANCHES[selected]
+    except KeyError as error:
+        raise ValueError(f"Unknown processing branch '{selected}'. Available: {', '.join(BRANCHES)}") from error
+
+
+def add_branch_metadata(sample_dir: Path, branch: ProcessingBranch) -> None:
+    """Record the selected route without changing legacy pipeline.py behavior."""
+    path = sample_dir / "metadata.json"
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    metadata["processing_branch"] = branch.name
+    metadata["processing_branch_description"] = branch.description
+    path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")

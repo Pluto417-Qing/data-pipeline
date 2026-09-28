@@ -1,0 +1,3 @@
+model_config: configs/sam2.1/sam2.1_hiera_s.yaml
+checkpoint: models/sam2/checkpoints/sam2.1_hiera_small.pt
+device: cuda

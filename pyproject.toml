@@ -1,0 +1,28 @@
+[project]
+name = "ghosthands"
+version = "0.1.0"
+description = "Research pipeline for hand segmentation and ghost-hand rendering"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26,<2",
+  "opencv-contrib-python==4.10.0.84",
+  "PyYAML>=6.0",
+  "python-dotenv>=1.0",
+  "requests>=2.31",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+runway = ["runwayml>=4.4"]
+dashscope = ["dashscope>=1.25.16"]
+mediapipe = ["mediapipe==0.10.21"]
+
+[project.scripts]
+ghosthands = "ghosthands.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
