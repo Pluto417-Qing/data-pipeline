@@ -25,6 +25,8 @@ class ProcessingBranch:
             return RefinedMediaPipeBackend()
         if self.name == "sam2":
             return create_backend("sam2")
+        if self.name == "xmem2":
+            return create_backend("xmem2")
         raise ValueError(f"Unknown processing branch '{self.name}'")
 
 
@@ -32,6 +34,7 @@ BRANCHES = {
     "classic": ProcessingBranch("classic", "Original MediaPipe landmark-to-mask pipeline."),
     "refined": ProcessingBranch("refined", "MediaPipe initial mask followed by constrained GrabCut boundary refinement."),
     "sam2": ProcessingBranch("sam2", "MediaPipe prompt masks propagated through SAM 2 video tracking."),
+    "xmem2": ProcessingBranch("xmem2", "Sparse MediaPipe hand masks propagated by XMem++ permanent-memory video segmentation."),
 }
 
 

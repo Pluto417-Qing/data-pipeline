@@ -27,6 +27,10 @@ class HandSegmentationBackend(ABC):
     def close(self) -> None:
         pass
 
+    def metadata(self) -> dict[str, object]:
+        """Return backend-specific, JSON-serialisable run details."""
+        return {}
+
     def prepare_video(self, source_path: Path) -> dict[int, list[HandInstance]] | None:
         """Optionally return tracked instances for a whole video before rendering.
 
@@ -267,7 +271,11 @@ class Sam2Backend(HandSegmentationBackend):
 
 
 def create_backend(name: str) -> HandSegmentationBackend:
-    backends = {"skin": SkinToneBackend, "mediapipe": MediaPipeBackend, "sam2": Sam2Backend}
+    # Keep the optional XMem++ dependency isolated: importing the normal CLI
+    # must not require its local checkout or its inference-only packages.
+    from .xmem2_backend import XMem2Backend
+
+    backends = {"skin": SkinToneBackend, "mediapipe": MediaPipeBackend, "sam2": Sam2Backend, "xmem2": XMem2Backend}
     try:
         return backends[name.lower()]()
     except KeyError as error:

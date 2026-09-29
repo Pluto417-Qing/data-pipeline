@@ -1,0 +1,8 @@
+# Local XMem++ integration. The setup script populates models/xmem2 and saves/XMem.pth.
+xmem2_root: models/xmem2
+python_executable: .venv-sam2/bin/python
+checkpoint: models/xmem2/saves/XMem.pth
+# One MediaPipe reference mask per second at 30 FPS. The first visible hand is
+# always retained even if it appears between regular seed frames.
+seed_stride: 30
+max_hands: 2

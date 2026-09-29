@@ -1,6 +1,6 @@
 .venv/
-.venv-clean/
-.venv-run/
+.venv-sam2/
+.venv-sam2-cpu-test/
 .pip-cache/
 .tmp/
 .env

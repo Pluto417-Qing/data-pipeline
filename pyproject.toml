@@ -16,6 +16,7 @@ dependencies = [
 runway = ["runwayml>=4.4"]
 dashscope = ["dashscope>=1.25.16"]
 mediapipe = ["mediapipe==0.10.21"]
+xmem2 = ["Pillow>=10", "progressbar2>=4.5", "pandas>=2.2", "tqdm>=4.66"]
 
 [project.scripts]
 ghosthands = "ghosthands.cli:app"

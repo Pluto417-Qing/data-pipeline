@@ -96,6 +96,8 @@ def process_video(source_path: Path, output_root: Path, backend: HandSegmentatio
         flags.append("few_hand_frames")
     if area_deltas.size and float(np.quantile(area_deltas, 0.95)) > 0.12:
         flags.append("mask_area_jump")
+    if float(np.mean(mask_areas)) > 0.35:
+        flags.append("mask_area_too_large")
     if max(hands_per_frame, default=0) > 2:
         flags.append("many_hands")
     status = "needs_review" if flags else "ready"
@@ -116,6 +118,7 @@ def process_video(source_path: Path, output_root: Path, backend: HandSegmentatio
         "seed": local_seed,
         "style": style.to_dict(),
         "mask_format": "8-bit PNG; union of all visible hands",
+        "backend_metadata": backend.metadata(),
     }
     (sample_dir / "quality.json").write_text(json.dumps(quality, indent=2), encoding="utf-8")
     (sample_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")

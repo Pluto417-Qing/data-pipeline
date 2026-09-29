@@ -4,7 +4,7 @@
 
 | 路线 | 实现 | 入口 | 输出 |
 | --- | --- | --- | --- |
-| 切割（手部分割 + 特效渲染） | skin / MediaPipe → mask → 蓝色发光效果 | `scripts/segment.ps1` | `outputs/segmentation/<实验名>/<后端>/` |
+| 切割（手部分割 + 特效渲染） | skin / MediaPipe / SAM 2 / XMem++ → mask → 蓝色发光效果 | `scripts/segment.ps1` | `outputs/segmentation/<实验名>/<后端>/` |
 | 直接生成（视频编辑模型） | DashScope / Runway 直接编辑视频 | `scripts/direct.ps1` | `outputs/direct/<模型>/<实验名>/` |
 
 ## 目录
@@ -82,6 +82,25 @@ active_branch: classic  # 改为 refined 后，未显式给出 --backend/--branc
 ```
 
 每个样本的 `metadata.json` 会记录 `processing_branch`，方便训练时筛选。
+
+### XMem++ 时序分割分支
+
+`xmem2` 使用 [XMem++](https://github.com/mbzuai-metaverse/XMem2) 的永久记忆式视频分割：先由 MediaPipe 为每只手自动生成稀疏参考 mask，再由 XMem++ 在全片传播。默认每秒保留一帧参考（`config/xmem2.yaml` 的 `seed_stride: 30`），并会在新的手首次出现时额外保留一帧；这比逐帧 MediaPipe mask 更适合处理遮挡与姿态变化。上游代码采用 GPL-3.0，源码和模型仅放在忽略提交的 `models/xmem2/`。
+
+当前 Linux 环境复用已可运行的 `.venv-sam2`，首次执行：
+
+```bash
+bash scripts/setup-xmem2.sh
+.venv-sam2/bin/python -m ghosthands.cli process clips/test-5s.mp4 outputs/segmentation/xmem2-01 --branch xmem2 --seed 7
+```
+
+安装脚本会获取 XMem++ 源码、命令行依赖与 `XMem.pth` 权重。当前环境为 CPU；短片可以验证流程，长视频应预留较长运行时间。运行完成后，正常输出逐帧 mask、发光视频、质检报告；`metadata.json` 的 `backend_metadata` 会记录实际种子帧和对象数。与其他路线比较：
+
+如果网络需要代理，执行安装时设置 `XMEM2_PROXY=http://host:port`；脚本会忽略机器环境中误填的 `proxy_ip:port` 占位代理。
+
+```powershell
+.\scripts\segment.ps1 compare-branches .\input\test_00_05.mp4 .\outputs\segmentation\xmem2-comparison --branches 'sam2,xmem2' --seed 7
+```
 
 ## 路线二：直接生成
 
