@@ -2,7 +2,13 @@
 xmem2_root: models/xmem2
 python_executable: .venv-sam2/bin/python
 checkpoint: models/xmem2/saves/XMem.pth
-# One MediaPipe reference mask per second at 30 FPS. The first visible hand is
-# always retained even if it appears between regular seed frames.
-seed_stride: 30
+# A reference every third of a second at 30 FPS limits drift after a pose
+# change/occlusion. Raise this to 30 to reproduce the former one-second setup.
+seed_stride: 10
 max_hands: 2
+# Align each propagated contour to the source-resolution pixels in a narrow,
+# XMem-constrained band. This smooths resize stair-steps without full-frame
+# colour segmentation leakage.
+edge_refinement: true
+edge_margin: 20
+edge_iterations: 2

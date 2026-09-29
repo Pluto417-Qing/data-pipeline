@@ -188,8 +188,19 @@ class Sam2Backend(HandSegmentationBackend):
         prompt_frames = self._collect_prompts(source_path)
         if not prompt_frames:
             return {}
+        first_prompt_frame = {
+            object_id: min(frame for frame, candidate_id, _ in prompt_frames if candidate_id == object_id)
+            for object_id in {object_id for _, object_id, _ in prompt_frames}
+        }
 
-        with self._torch.inference_mode():
+        # SAM 2's CUDA video predictor keeps image features in bfloat16.  Use
+        # autocast for every prompt and propagation call so multi-object memory
+        # attention does not mix those features with float32 activations.
+        with self._torch.inference_mode(), self._torch.autocast(
+            device_type=self._device,
+            dtype=self._torch.bfloat16,
+            enabled=self._device == "cuda",
+        ):
             state = self._predictor.init_state(video_path=str(source_path))
             for frame_index, object_id, prompt in prompt_frames:
                 if self._prompt_type == "mask":
@@ -219,6 +230,12 @@ class Sam2Backend(HandSegmentationBackend):
             for frame_index, object_ids, mask_logits in self._predictor.propagate_in_video(state):
                 frame_instances: list[HandInstance] = []
                 for object_id, logits in zip(object_ids, mask_logits):
+                    object_id = int(object_id)
+                    # SAM 2 returns every object ID on every propagated frame,
+                    # including frames before a hand was first observed.  Do
+                    # not render a speculative second hand before its prompt.
+                    if frame_index < first_prompt_frame[object_id]:
+                        continue
                     mask = (logits > 0.0).squeeze().detach().cpu().numpy().astype(np.uint8) * 255
                     if mask.ndim != 2:
                         continue
@@ -242,19 +259,33 @@ class Sam2Backend(HandSegmentationBackend):
                     break
                 found = self._prompter.segment(frame)
                 should_correct = self._prompt_mode == "keyframes" and frame_index % self._prompt_stride == 0
+                # A frame can contain two detections with the same (occasionally
+                # unstable) handedness label.  Never let them share one SAM 2
+                # object: a second visible hand needs an independent track.
+                object_ids_in_frame: set[int] = set()
                 for prompt in found:
                     center = prompt.landmarks.mean(axis=0).astype(np.float32)
                     handedness = prompt.handedness.lower()
                     object_id = object_for_handedness.get(handedness)
-                    if object_id is None and latest_centers:
-                        object_id = min(latest_centers, key=lambda item: float(np.linalg.norm(center - latest_centers[item])))
-                    if object_id is None:
-                        if next_object_id > self._max_hands:
-                            continue
+                    if object_id in object_ids_in_frame:
+                        object_id = None
+                    if object_id is None and next_object_id <= self._max_hands:
+                        # Do not spatially match a new label while a tracking
+                        # slot remains.  The old behavior merged the first
+                        # right-hand prompt into the existing left-hand track.
                         object_id = next_object_id
                         next_object_id += 1
-                    object_for_handedness[handedness] = object_id
+                    if object_id is None:
+                        candidates = [item for item in latest_centers if item not in object_ids_in_frame]
+                        if not candidates:
+                            continue
+                        object_id = min(candidates, key=lambda item: float(np.linalg.norm(center - latest_centers[item])))
+                    # Keep the original label-to-object mapping if this was a
+                    # duplicate label in the same frame.  MediaPipe can assign
+                    # the same handedness to both hands during overlap.
+                    object_for_handedness.setdefault(handedness, object_id)
                     latest_centers[object_id] = center
+                    object_ids_in_frame.add(object_id)
                     # Always create a prompt for a newly observed hand.  Later
                     # prompts are optional corrections and preserve the legacy
                     # first-prompt route when prompt_mode=initial.
@@ -274,8 +305,10 @@ def create_backend(name: str) -> HandSegmentationBackend:
     # Keep the optional XMem++ dependency isolated: importing the normal CLI
     # must not require its local checkout or its inference-only packages.
     from .xmem2_backend import XMem2Backend
+    from .mano_kinematic_backend import ManoKinematicBackend
+    from .mano_backend import ManoMeshBackend
 
-    backends = {"skin": SkinToneBackend, "mediapipe": MediaPipeBackend, "sam2": Sam2Backend, "xmem2": XMem2Backend}
+    backends = {"skin": SkinToneBackend, "mediapipe": MediaPipeBackend, "sam2": Sam2Backend, "xmem2": XMem2Backend, "mano_kinematic": ManoKinematicBackend, "mano": ManoMeshBackend}
     try:
         return backends[name.lower()]()
     except KeyError as error:

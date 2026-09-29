@@ -32,6 +32,19 @@ if [[ ! -x "${venv_dir}/bin/python" ]]; then
   exit 2
 fi
 
+# Install a CUDA-enabled PyTorch build. CUDA 12.1 is compatible with the
+# installed NVIDIA driver (535) and H100 GPU.
+if ! "${venv_dir}/bin/python" - <<'PY'
+import torch
+raise SystemExit(0 if torch.cuda.is_available() else 1)
+PY
+then
+  "${venv_dir}/bin/python" -m pip install \
+    --upgrade --force-reinstall --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cu121 \
+    "torch==2.5.1+cu121" "torchvision==0.20.1+cu121"
+fi
+
 if [[ ! -f "${xmem_root}/process_video.py" ]]; then
   git "${git_proxy_args[@]}" clone --depth 1 https://github.com/mbzuai-metaverse/XMem2.git "${xmem_root}"
 fi

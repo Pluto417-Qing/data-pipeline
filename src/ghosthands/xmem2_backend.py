@@ -30,8 +30,13 @@ class XMem2Backend(HandSegmentationBackend):
         self._root = project_root / str(settings.get("xmem2_root", "models/xmem2"))
         self._python = project_root / str(settings.get("python_executable", ".venv-sam2/bin/python"))
         self._checkpoint = project_root / str(settings.get("checkpoint", "models/xmem2/saves/XMem.pth"))
-        self._seed_stride = max(1, int(settings.get("seed_stride", 30)))
+        # More frequent corrections keep the permanent memory from carrying a
+        # coarse landmark outline through a pose change or partial occlusion.
+        self._seed_stride = max(1, int(settings.get("seed_stride", 10)))
         self._max_hands = max(1, int(settings.get("max_hands", 2)))
+        self._edge_refinement = bool(settings.get("edge_refinement", True))
+        self._edge_margin = max(4, int(settings.get("edge_margin", 20)))
+        self._edge_iterations = max(1, int(settings.get("edge_iterations", 2)))
         self._prompter = MediaPipeBackend(max_hands=self._max_hands)
         self._temporary_dirs: list[tempfile.TemporaryDirectory[str]] = []
         self._last_metadata: dict[str, object] = {}
@@ -65,17 +70,122 @@ class XMem2Backend(HandSegmentationBackend):
             details = (completed.stderr or completed.stdout)[-1600:]
             raise RuntimeError(f"XMem++ inference failed for {source_path.name}: {details}")
 
-        tracked = self._read_predictions(output_path, object_ids)
+        capture = cv2.VideoCapture(str(source_path))
+        try:
+            source_shape = (
+                int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            )
+        finally:
+            capture.release()
+        if not all(source_shape):
+            raise RuntimeError(f"Cannot read dimensions from {source_path}")
+
+        tracked = self._read_predictions(output_path, object_ids, source_shape)
         if not tracked:
             raise RuntimeError("XMem++ completed but produced no readable PNG masks.")
+        if self._edge_refinement:
+            self._refine_prediction_edges(source_path, tracked)
         self._last_metadata = {
             "xmem2_root": str(self._root.relative_to(self._project_root)),
             "checkpoint": str(self._checkpoint.relative_to(self._project_root)),
             "seed_stride": self._seed_stride,
             "seed_frames": seed_frames,
             "object_count": len(object_ids),
+            "edge_refinement": self._edge_refinement,
+            "edge_margin": self._edge_margin if self._edge_refinement else None,
         }
         return tracked
+
+    def _refine_prediction_edges(self, source_path: Path, tracked: dict[int, list[HandInstance]]) -> None:
+        """Snap XMem contours to pixels without allowing a full-frame leak.
+
+        XMem's output is a strong temporal prior, but its inference-scale mask
+        becomes stair-stepped when restored to the source resolution. GrabCut
+        is therefore run only in a narrow dilated band around each prediction:
+        eroded XMem pixels remain definite foreground and all pixels outside
+        the band remain definite background.
+        """
+        capture = cv2.VideoCapture(str(source_path))
+        frame_index = 0
+        try:
+            while True:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                instances = tracked.get(frame_index)
+                if instances:
+                    tracked[frame_index] = [
+                        HandInstance(
+                            self._refine_mask_edge(frame, instance.mask),
+                            instance.landmarks,
+                            instance.handedness,
+                            instance.confidence,
+                        )
+                        for instance in instances
+                    ]
+                frame_index += 1
+        finally:
+            capture.release()
+
+    def _refine_mask_edge(self, frame: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        if not np.any(mask):
+            return mask
+
+        height, width = mask.shape
+        ys, xs = np.where(mask > 0)
+        margin = self._edge_margin
+        x0, x1 = max(0, int(xs.min()) - margin), min(width, int(xs.max()) + margin + 1)
+        y0, y1 = max(0, int(ys.min()) - margin), min(height, int(ys.max()) + margin + 1)
+        mask_crop = mask[y0:y1, x0:x1]
+        frame_crop = frame[y0:y1, x0:x1]
+
+        # Keep a conservative XMem interior locked as hand. The uncertainty
+        # band is deliberately narrow, so similar-coloured background cannot
+        # be absorbed far away from the tracked contour.
+        core_kernel = np.ones((5, 5), np.uint8)
+        band_kernel = np.ones((2 * margin + 1, 2 * margin + 1), np.uint8)
+        core = cv2.erode(mask_crop, core_kernel)
+        if not np.any(core):
+            core = mask_crop
+        envelope = cv2.dilate(mask_crop, band_kernel)
+        grabcut_mask = np.full(mask_crop.shape, cv2.GC_BGD, dtype=np.uint8)
+        grabcut_mask[envelope > 0] = cv2.GC_PR_BGD
+        grabcut_mask[mask_crop > 0] = cv2.GC_PR_FGD
+        grabcut_mask[core > 0] = cv2.GC_FGD
+        background_model = np.zeros((1, 65), np.float64)
+        foreground_model = np.zeros((1, 65), np.float64)
+        try:
+            cv2.grabCut(
+                frame_crop,
+                grabcut_mask,
+                None,
+                background_model,
+                foreground_model,
+                self._edge_iterations,
+                cv2.GC_INIT_WITH_MASK,
+            )
+            refined_crop = np.where(
+                (grabcut_mask == cv2.GC_FGD) | (grabcut_mask == cv2.GC_PR_FGD), 255, 0
+            ).astype(np.uint8)
+        except cv2.error:
+            refined_crop = mask_crop.copy()
+
+        refined_crop = cv2.bitwise_and(refined_crop, envelope)
+        # Remove islands that GrabCut may create, while retaining every region
+        # connected to the definite XMem core (important for separated fingers).
+        count, labels, _, _ = cv2.connectedComponentsWithStats(refined_crop)
+        keep = np.unique(labels[core > 0])
+        cleaned = np.zeros_like(refined_crop)
+        for label in keep:
+            if label:
+                cleaned[labels == label] = 255
+        if count <= 1 or not np.any(cleaned):
+            cleaned = mask_crop.copy()
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+        refined = np.zeros_like(mask)
+        refined[y0:y1, x0:x1] = cleaned
+        return refined
 
     def _validate_installation(self) -> None:
         script = self._root / "process_video.py"
@@ -150,7 +260,11 @@ class XMem2Backend(HandSegmentationBackend):
         return assigned
 
     @staticmethod
-    def _read_predictions(output_path: Path, object_ids: set[int]) -> dict[int, list[HandInstance]]:
+    def _read_predictions(
+        output_path: Path,
+        object_ids: set[int],
+        source_shape: tuple[int, int],
+    ) -> dict[int, list[HandInstance]]:
         by_frame: dict[int, list[Path]] = {}
         for path in output_path.rglob("*.png"):
             match = re.search(r"\d+", path.stem)
@@ -162,7 +276,20 @@ class XMem2Backend(HandSegmentationBackend):
             path = next((item for item in paths if "mask" in str(item.parent).lower()), paths[0])
             from PIL import Image
 
-            labels = np.asarray(Image.open(path).convert("P"), dtype=np.uint8)
+            # XMem++ maps prediction indices back to the palette of the input
+            # seed masks and writes an RGB PNG. Converting that image to a new
+            # palette changes IDs 1/2 into arbitrary palette indices, making
+            # every object appear absent. Decode DAVIS palette colors directly.
+            rgb = np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
+            labels = np.zeros(rgb.shape[:2], dtype=np.uint8)
+            palette = np.asarray(_davis_palette(), dtype=np.uint8).reshape(256, 3)
+            for object_id in object_ids:
+                labels[np.all(rgb == palette[object_id], axis=2)] = object_id
+
+            # XMem++ uses a 480-pixel minimum side by default. Restore the
+            # original frame size before combining the mask with OpenCV frames.
+            if labels.shape != source_shape:
+                labels = cv2.resize(labels, (source_shape[1], source_shape[0]), interpolation=cv2.INTER_NEAREST)
             instances: list[HandInstance] = []
             for object_id in sorted(object_ids):
                 mask = np.where(labels == object_id, 255, 0).astype(np.uint8)

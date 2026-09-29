@@ -85,7 +85,7 @@ active_branch: classic  # 改为 refined 后，未显式给出 --backend/--branc
 
 ### XMem++ 时序分割分支
 
-`xmem2` 使用 [XMem++](https://github.com/mbzuai-metaverse/XMem2) 的永久记忆式视频分割：先由 MediaPipe 为每只手自动生成稀疏参考 mask，再由 XMem++ 在全片传播。默认每秒保留一帧参考（`config/xmem2.yaml` 的 `seed_stride: 30`），并会在新的手首次出现时额外保留一帧；这比逐帧 MediaPipe mask 更适合处理遮挡与姿态变化。上游代码采用 GPL-3.0，源码和模型仅放在忽略提交的 `models/xmem2/`。
+`xmem2` 使用 [XMem++](https://github.com/mbzuai-metaverse/XMem2) 的永久记忆式视频分割：先由 MediaPipe 为每只手自动生成稀疏参考 mask，再由 XMem++ 在全片传播。默认每三分之一秒保留一帧参考（`config/xmem2.yaml` 的 `seed_stride: 10`），并会在新的手首次出现时额外保留一帧；这能更快纠正姿态变化和遮挡后的漂移。传播结果会在原始分辨率上执行受 XMem 掩码约束的局部 GrabCut 边缘贴合（`edge_refinement: true`），只在轮廓周围 `edge_margin` 像素内调整，避免误吸附远处的肤色背景。上游代码采用 GPL-3.0，源码和模型仅放在忽略提交的 `models/xmem2/`。
 
 当前 Linux 环境复用已可运行的 `.venv-sam2`，首次执行：
 
@@ -136,13 +136,3 @@ LTX 分支会把输入视频复制到 ComfyUI 的 `input/` 目录，提交工作
 ```powershell
 .\.venv-run\Scripts\python.exe -m ghosthands.cli direct-candidates .\config
 ```
-
-## 待清理遗留目录
-
-旧切割任务已停止，保留结果已迁入 `outputs/`。自动审批以“策略阻止”拒绝删除操作，因此以下目录仍在磁盘上，不再作为运行输出：
-
-- `dataset/experiment-01/`：已停止的切割半成品。
-- `dataset/_checks/`：旧 smoke、quick-test 和预览；最新 `unified-env` 已迁出。
-- `test-clips/`、`models/`、`experiments/smoke/`、`experiments/direct/`：空目录。
-
-以上内容删除后，空的 `dataset/`、`experiments/` 也可删除。最终检查时 `.pip-cache/`、`.tmp/` 已不存在。唯一运行环境 `.venv-run/`、`input/`、`clips/`、`outputs/`、源码及 `.env` 应保留。

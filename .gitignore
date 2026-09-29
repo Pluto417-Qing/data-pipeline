@@ -1,5 +1,6 @@
 .venv/
 .venv-sam2/
+.venv-vace/
 .venv-sam2-cpu-test/
 .pip-cache/
 .tmp/
@@ -14,3 +15,4 @@ clips/
 experiments/
 *.egg-info/
 outputs/
+torch-cu121/

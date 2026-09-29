@@ -59,6 +59,7 @@ def process_video(source_path: Path, output_root: Path, backend: HandSegmentatio
     detected_frames = 0
     mask_areas: list[float] = []
     hands_per_frame: list[int] = []
+    landmark_frames: list[dict[str, object]] = []
     tracked_instances = backend.prepare_video(source_path)
     try:
         while True:
@@ -69,6 +70,17 @@ def process_video(source_path: Path, output_root: Path, backend: HandSegmentatio
             combined_mask = np.zeros((height, width), dtype=np.uint8)
             for instance in instances:
                 combined_mask = cv2.bitwise_or(combined_mask, instance.mask)
+            landmark_frames.append({
+                "frame": frame_index,
+                "hands": [
+                    {
+                        "track": instance.handedness,
+                        "confidence": instance.confidence,
+                        "landmarks_2d": instance.landmarks.astype(int).tolist(),
+                    }
+                    for instance in instances if instance.landmarks.shape == (21, 2)
+                ],
+            })
             if instances:
                 detected_frames += 1
             mask_areas.append(float(np.count_nonzero(combined_mask)) / float(width * height))
@@ -122,6 +134,7 @@ def process_video(source_path: Path, output_root: Path, backend: HandSegmentatio
     }
     (sample_dir / "quality.json").write_text(json.dumps(quality, indent=2), encoding="utf-8")
     (sample_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    (sample_dir / "landmarks.json").write_text(json.dumps(landmark_frames), encoding="utf-8")
     return SampleResult(sample_name, status, frame_index, hand_ratio, flags)
 
 
