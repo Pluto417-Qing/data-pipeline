@@ -1,3 +1,11 @@
-model_config: configs/sam2.1/sam2.1_hiera_s.yaml
-checkpoint: models/sam2/checkpoints/sam2.1_hiera_small.pt
+sam2_root: models/sam2
+model_config: configs/sam2.1/sam2.1_hiera_b+.yaml
+checkpoint: models/sam2/checkpoints/sam2.1_hiera_base_plus.pt
 device: cuda
+# initial keeps the first-prompt baseline. keyframes periodically re-prompts
+# SAM 2 so an occluded or late-entering hand can be recovered.
+prompt_mode: keyframes
+prompt_stride: 12
+# box_points lets SAM 2 infer the contour from an automatic hand box and 21
+# landmark prompts. mask preserves the earlier landmark-fill baseline.
+prompt_type: box_points

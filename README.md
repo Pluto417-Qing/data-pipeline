@@ -63,6 +63,8 @@ py -3.11 -m venv .venv-run
 
 每个样本输出 `source.mp4`、`target.mp4`、逐帧 PNG mask、`metadata.json` 和 `quality.json`，后端目录包含 `report.html`；compare 实验根目录包含 `comparison.json`。`skin` 是肤色阈值基线；MediaPipe 根据手部关键点构建 mask；SAM 2 仍是待接入占位后端。
 
+SAM 2 是独立的时序分割分支：MediaPipe 自动提供手框和 21 个关节点正提示，SAM 2 在视频内推断精确轮廓并做时序追踪。默认每 12 帧重新提示一次，以便恢复被遮挡或后进入画面的手；在 `config/sam2.yaml` 设 `prompt_mode: initial` 可复现单提示基线，设 `prompt_type: mask` 可复现旧的关节点填充 mask 基线。运行 `scripts/setup-sam2.ps1` 完成本机安装；在 Linux 服务器使用 `scripts/setup-sam2.sh`。先用 2–5 秒视频验证，再在 GPU 节点批量处理。
+
 ### 处理分支开关
 
 原代码保留为 `classic` 分支。新增的 `refined` 分支先运行相同的 MediaPipe 手部定位，再以原帧像素和颜色模型执行受限 GrabCut，使 mask 边界贴近手部；它不会扩张到原手形以外的大范围区域。

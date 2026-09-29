@@ -59,12 +59,13 @@ def process_video(source_path: Path, output_root: Path, backend: HandSegmentatio
     detected_frames = 0
     mask_areas: list[float] = []
     hands_per_frame: list[int] = []
+    tracked_instances = backend.prepare_video(source_path)
     try:
         while True:
             ok, frame = capture.read()
             if not ok:
                 break
-            instances = backend.segment(frame)
+            instances = tracked_instances.get(frame_index, []) if tracked_instances is not None else backend.segment(frame)
             combined_mask = np.zeros((height, width), dtype=np.uint8)
             for instance in instances:
                 combined_mask = cv2.bitwise_or(combined_mask, instance.mask)
