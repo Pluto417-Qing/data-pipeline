@@ -179,6 +179,7 @@ class Sam2Backend(HandSegmentationBackend):
             raise RuntimeError("SAM 2 model_config must be a logical configs/... name, not an absolute path.")
         self._predictor = build_sam2_video_predictor(model_config_name, str(checkpoint), device=self._device)
         self._prompter = MediaPipeBackend(max_hands=max_hands)
+        self._last_metadata: dict[str, object] = {}
 
     def segment(self, bgr_frame: np.ndarray) -> list[HandInstance]:
         raise RuntimeError("SAM 2 requires video context. Use process with --branch sam2 on a video file.")
@@ -187,6 +188,11 @@ class Sam2Backend(HandSegmentationBackend):
         """Use MediaPipe masks as initial or periodic correction prompts for SAM 2."""
         prompt_frames = self._collect_prompts(source_path)
         if not prompt_frames:
+            self._last_metadata = {
+                "label_semantics": "visible_hand_pixels_only",
+                "occluded_regions": "not inferred",
+                "prompt_count": 0,
+            }
             return {}
         first_prompt_frame = {
             object_id: min(frame for frame, candidate_id, _ in prompt_frames if candidate_id == object_id)
@@ -242,6 +248,16 @@ class Sam2Backend(HandSegmentationBackend):
                     frame_instances.append(HandInstance(mask, np.empty((0, 2), np.int32), f"SAM2-{object_id}", 1.0))
                 tracked[int(frame_index)] = frame_instances
             self._predictor.reset_state(state)
+        self._last_metadata = {
+            "label_semantics": "visible_hand_pixels_only",
+            "occluded_regions": "not inferred",
+            "segmenter": "SAM 2 video",
+            "device": self._device,
+            "prompt_mode": self._prompt_mode,
+            "prompt_type": self._prompt_type,
+            "prompt_count": len(prompt_frames),
+            "object_count": len(first_prompt_frame),
+        }
         return tracked
 
     def _collect_prompts(self, source_path: Path) -> list[tuple[int, int, HandInstance]]:
@@ -299,6 +315,9 @@ class Sam2Backend(HandSegmentationBackend):
 
     def close(self) -> None:
         self._prompter.close()
+
+    def metadata(self) -> dict[str, object]:
+        return self._last_metadata
 
 
 def create_backend(name: str) -> HandSegmentationBackend:
